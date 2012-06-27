@@ -20,6 +20,7 @@ setup(name='MongoMultiMaster',
       install_requires=[
           # -*- Extra requirements: -*-
       ],
+      scripts=['scripts/mmm'],
       entry_points="""
       # -*- Entry points: -*-
       """,

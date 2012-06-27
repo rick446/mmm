@@ -7,3 +7,8 @@ MongoMultiMaster.egg-info/entry_points.txt
 MongoMultiMaster.egg-info/not-zip-safe
 MongoMultiMaster.egg-info/top_level.txt
 mmm/__init__.py
+mmm/main.py
+mmm/replication.py
+mmm/slave.py
+mmm/triggers.py
+scripts/mmm

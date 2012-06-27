@@ -1,4 +1,3 @@
-import bson
 import gevent
 from collections import defaultdict
 
@@ -7,21 +6,21 @@ class Triggers(object):
     def __init__(self, connection, checkpoint):
         self._conn = connection
         self._oplog = self._conn.local.oplog.rs
-        self._config = self._conn.local.mmm
         self._oplog.ensure_index('ts')
         self._callbacks = defaultdict(list)
-        self._checkpoint = checkpoint
+        self.checkpoint = checkpoint
 
     def run(self):
         while True:
-            spec = dict(ts={'$gt': self._checkpoint})
+            yield self.checkpoint
+            spec = dict(ts={'$gt': self.checkpoint})
             q = self._oplog.find(
                 spec, tailable=True, await_data=True)
             found=False
             print 'query on', self._oplog
             for op in q.sort('$natural'):
                 found = True
-                self._checkpoint = op['ts']
+                self.checkpoint = op['ts']
                 for callback in self._callbacks.get(
                     (op['ns'], op['op']), []):
                     callback(**op)
@@ -41,5 +40,3 @@ class Triggers(object):
         else:
             return wrapper
 
-    def store_checkpoint(self):
-        self._config.update({}, {'$set': {'checkpoint': self._checkpoint } } )
