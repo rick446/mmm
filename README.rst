@@ -16,7 +16,7 @@ To install, use pip:
 
 ::
 
-    pip install mmm
+    pip install MongoMultiMaster
 
 MongoDB Setup
 -------------

@@ -24,7 +24,7 @@ Description: MongoMultiMaster
         
         ::
         
-            pip install mmm
+            pip install MongoMultiMaster
         
         MongoDB Setup
         -------------
