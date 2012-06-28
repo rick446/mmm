@@ -9,35 +9,9 @@ import logging.config
 
 import yaml
 
-from mmm.slave import ReplicationSlave
-
 def main():
     global log
     parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers(
-        title='subcommands',
-        description='valid subcommands')
-    dump_config = subparsers.add_parser(
-        'dump-config', description='Show the replication configuration')
-    dump_config.set_defaults(func=run_dump_config)
-    clear_config = subparsers.add_parser(
-        'clear-config', description='Reset the server(s) to not be replicating')
-    clear_config.set_defaults(func=run_clear_config)
-    replicate = subparsers.add_parser(
-        'replicate', description='Create a replication link')
-    replicate.add_argument('-s', '--src', dest='src', required=True)
-    replicate.add_argument('-d', '--dst', dest='dst', required=True)
-    replicate.set_defaults(func=run_replicate)
-
-
-
-
-    configure = subparsers.add_parser(
-        'configure', description='Using the current config file,'
-        ' overwrite the current configuration')
-    run = subparsers.add_parser(
-        'run', description='Run the replication engine')
-
     parser.add_argument(
         '-l', '--logging', dest='logging', default=None,
         help='Logging config file')
@@ -45,10 +19,32 @@ def main():
         '-c', '--config', dest='config', default='test.yml',
         help='Topology config file',
         required=True)
-    parser.add_argument(
+    subparsers = parser.add_subparsers(
+        title='subcommands',
+        description='valid subcommands')
+
+    dump_config = subparsers.add_parser(
+        'dump-config', description='Show the replication configuration')
+    dump_config.set_defaults(func=run_dump_config)
+
+    clear_config = subparsers.add_parser(
+        'clear-config', description='Reset the server(s) to not be replicating')
+    clear_config.add_argument(
         '-s', '--slave', dest='slave', default=None,
         help='Restrict operations to a particular named slave')
-    configure.set_defaults(func=run_configure)
+    clear_config.set_defaults(func=run_clear_config)
+
+    replicate = subparsers.add_parser(
+        'replicate', description='Create a replication link')
+    replicate.add_argument('-s', '--src', dest='src', required=True)
+    replicate.add_argument('-d', '--dst', dest='dst', required=True)
+    replicate.set_defaults(func=run_replicate)
+
+    run = subparsers.add_parser(
+        'run', description='Run the replication engine')
+    run.add_argument(
+        '-s', '--slave', dest='slave', default=None,
+        help='Restrict operations to a particular named slave')
     run.set_defaults(func=run_main)
 
     args = parser.parse_args()
@@ -61,6 +57,8 @@ def main():
             level=logging.INFO)
     log = logging.getLogger('mmm')
         
+    from mmm.slave import ReplicationSlave
+
     with open(args.config) as fp:
         config = yaml.load(fp)
     servers = {}
@@ -83,6 +81,7 @@ def run_dump_config(config, servers, args):
         for mname, mconfig in config.items():
             for repl in mconfig['replication']:
                 print '     - %s <= %s/%s' % (repl['dst'], mname, repl['src'])
+    print
 
 def run_clear_config(config, servers, args):
     if args.slave:
@@ -104,11 +103,16 @@ def run_replicate(config, servers, args):
     s_dst, ns_dst = args.dst.split('/', 1)
     servers[s_dst].set_replication(s_src, ns_src=ns_src, ns_dst=ns_dst)
 
-def run_main(config, args):
-    print config
+def run_main(config, servers, args):
+    log = logging.getLogger('mmm')
+    for s in servers.values():
+        s.start()
+    while True:
+        gevent.sleep(5)
+        log.info('=== mark ===')
+
+
     
-def run_configure(config, args):
-    print config
 
     
 if __name__ == '__main__':

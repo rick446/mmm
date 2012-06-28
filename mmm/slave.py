@@ -1,12 +1,15 @@
 import copy
 import time
+import uuid
+import logging
 
 import bson
-import yaml
 import gevent
 from pymongo import Connection
 
 from .triggers import Triggers
+
+log = logging.getLogger(__name__)
 
 MMM_DB_NAME = 'mmm'
 MMM_REPL_FLAG = '__mmm'
@@ -30,6 +33,8 @@ class ReplicationSlave(object):
         self.name = name
         topo = topology[name]
         self.id = topo['id']
+        if isinstance(self.id, basestring):
+            self.id = uuid.UUID(self.id)
         self.uri = topo['uri']
         self._conn = Connection(self.uri, use_greenlets=True)
         self._coll = self._conn.local[MMM_DB_NAME]
@@ -105,21 +110,24 @@ class ReplicationSlave(object):
                 dict(_id=_id),
                 { '$set': { 'checkpoint': master['checkpoint'] } })
 
-    def replicate(self, master_uri, checkpoint=None):
+    def replicate(self, master_name, checkpoint=None):
         '''Actual replication loop for replicating off of master_uri'''
-        master = self._config[master_uri]
-        conn = Connection(master_uri, use_greenlets=True)
+        master_repl_config = self._config[master_name]
+        master_info = self._topology[master_name]
+        master_id = master_repl_config['_id']
+        conn = Connection(master_info['uri'], use_greenlets=True)
         if checkpoint is None:
-            checkpoint = master.get('checkpoint')
+            checkpoint = master_repl_config.get('checkpoint')
         if checkpoint is None:
             # By default, start replicating as of NOW
             checkpoint = bson.Timestamp(long(time.time()), 0)
         triggers = Triggers(conn, checkpoint)
-        for r in master['replication']:
+        for r in master_repl_config['replication']:
             triggers.register(
-                r['src'], 'iud', self._replicate_to_trigger(r['dst']))
+                r['src'], 'iud',
+                self._replicate_to_trigger(master_id, r['dst']))
         for checkpoint in triggers.run():
-            master['checkpoint'] = checkpoint
+            master_repl_config['checkpoint'] = checkpoint
 
     def periodic_checkpoint(self, period=1.0):
         '''Periodically call self.checkpoint() to allow restarts'''
@@ -127,25 +135,34 @@ class ReplicationSlave(object):
             gevent.sleep(period)
             self.checkpoint()
 
-    def _replicate_to_trigger(self, dst):
-        repl_id = bson.ObjectId()
+    def _replicate_to_trigger(self, src_id, dst):
+        if isinstance(src_id, basestring):
+            src_id = uuid.UUID(src_id)
         db, cname = dst.split('.', 1)
         collection = self._conn[db][cname]
         def trigger(ts, h, op, ns, o, o2=None, b=False):
-            print ts, op, ns
+            log.info('%s <= %s: %s %s', self.id, src_id, op, ns)
             if op == 'i':
-                if o.get(MMM_REPL_FLAG) == repl_id:
-                    print 'SKIP'
+                if o.get(MMM_REPL_FLAG) == self.id:
+                    log.debug('%s: skip', self.id)
                     return
-                o[MMM_REPL_FLAG] = repl_id
+                o.setdefault(MMM_REPL_FLAG, src_id)
                 collection.insert(o)
             elif op == 'u':
+                log.debug('o %s, o2 %s', o, o2)
                 upsert = b
-                setters = o.setdefault('$set', {})
-                if setters.get(MMM_REPL_FLAG) == repl_id:
-                    print 'SKIP'
+                if any(k.startswith('$') for k in o):
+                    # With modifiers, check & update setters
+                    setters = o.setdefault('$set', {})
+                else:
+                    # Without modifiers, check & update the doc directly
+                    setters = o
+                if setters.get(MMM_REPL_FLAG) == self.id:
+                    log.debug('%s: skip', self.id)
                     return
-                setters.setdefault(MMM_REPL_FLAG, repl_id)
+                setters.setdefault(MMM_REPL_FLAG, src_id)
+                    
+                log.debug('o %s, o2 %s', o, o2)
                 collection.update(o2, o, upsert)
             elif op == 'd':
                 justOne = b

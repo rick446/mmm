@@ -1,5 +1,9 @@
-import gevent
+import logging
 from collections import defaultdict
+
+import gevent
+
+log = logging.getLogger(__name__)
 
 class Triggers(object):
 
@@ -17,14 +21,13 @@ class Triggers(object):
             q = self._oplog.find(
                 spec, tailable=True, await_data=True)
             found=False
-            print 'query on', self._oplog
+            # log.debug('Query on %s', self._oplog)
             for op in q.sort('$natural'):
                 found = True
                 self.checkpoint = op['ts']
                 for callback in self._callbacks.get(
                     (op['ns'], op['op']), []):
                     callback(**op)
-            print found
             if found:
                 gevent.sleep(0)
             else:
