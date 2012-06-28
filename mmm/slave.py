@@ -1,7 +1,9 @@
+import copy
 import time
-import gevent
 
 import bson
+import yaml
+import gevent
 from pymongo import Connection
 
 from .triggers import Triggers
@@ -14,7 +16,7 @@ class ReplicationSlave(object):
 
     Each 'master' connection has its own document in mmm:
     
-    {  _id: 'mongodb://master_connection_uri',
+    {  _id: some_uuid,
       checkpoint: ...,  // timestamp offset in the oplog
       replication: [
          { dst: 'slave-database.collection',
@@ -23,8 +25,13 @@ class ReplicationSlave(object):
     }
     '''
 
-    def __init__(self, uri):
-        self._conn = Connection(uri, use_greenlets=True)
+    def __init__(self, topology, name):
+        self._topology = topology
+        self.name = name
+        topo = topology[name]
+        self.id = topo['id']
+        self.uri = topo['uri']
+        self._conn = Connection(self.uri, use_greenlets=True)
         self._coll = self._conn.local[MMM_DB_NAME]
         self._config = {}
         self._greenlets = []
@@ -42,33 +49,50 @@ class ReplicationSlave(object):
 
     def load_config(self):
         self._config = {}
+        name_by_id = dict(
+            (sconf['id'], name)
+            for name, sconf in self._topology.items())
         for master in self._coll.find():
-            self._config[master['_id']] = master
+            self._config[name_by_id[master['_id']]] = master
 
-    def set_replication(self, master_uri, ns_dst, ns_src):
+    def clear_config(self):
+        self._config = {}
+        self._coll.remove()
+
+    def dump_config(self):
+        result = {}
+        for name, sconfig in self._config.items():
+            d = copy.deepcopy(sconfig)
+            d.pop('checkpoint', None)
+            result[name] = d
+        return result
+
+    def set_replication(self, master_name, ns_dst, ns_src):
+        master_id = self._topology[master_name]['id']
         replication = dict(dst=ns_dst, src=ns_src)
         master = self._coll.update(
-            dict(_id=master_uri),
+            dict(_id=master_id),
             { '$addToSet': { 'replication': replication } },
             upsert=True,
             new=True)
-        self._config[master_uri] = master
+        self._config[master_name] = master
 
-    def unset_replication(self, master_uri, ns_dst=None, ns_src=None):
+    def unset_replication(self, master_name, ns_dst=None, ns_src=None):
+        master_id = self._topology[master_name]['id']
         to_pull = dict()
         if ns_dst is not None: to_pull['dst'] = ns_dst
         if ns_src is not None: to_pull['src'] = ns_src
         if to_pull:
             # Stop replication on one namespace
             master = self._coll.find_and_modify(
-                dict(_id=master_uri),
+                dict(_id=master_id),
                 { '$pull': { 'replication': to_pull } },
                 new=True)
-            self._config[master_uri] = master
+            self._config[master_name] = master
         else:
             # Stop replication on the whole master
-            self._coll.remove(dict(_id=master_uri))
-            self._config.pop(master_uri, None)
+            self._coll.remove(dict(_id=master_id))
+            self._config.pop(master_name, None)
         
     def checkpoint(self, master_uri=None):
         if master_uri is None:

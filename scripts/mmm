@@ -1,3 +1,115 @@
 #!/usr/bin/env python
-from mmm import main
-main.main()
+import gevent.monkey
+gevent.monkey.patch_all()
+
+import json
+import bson
+import argparse
+import logging.config
+
+import yaml
+
+from mmm.slave import ReplicationSlave
+
+def main():
+    global log
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(
+        title='subcommands',
+        description='valid subcommands')
+    dump_config = subparsers.add_parser(
+        'dump-config', description='Show the replication configuration')
+    dump_config.set_defaults(func=run_dump_config)
+    clear_config = subparsers.add_parser(
+        'clear-config', description='Reset the server(s) to not be replicating')
+    clear_config.set_defaults(func=run_clear_config)
+    replicate = subparsers.add_parser(
+        'replicate', description='Create a replication link')
+    replicate.add_argument('-s', '--src', dest='src', required=True)
+    replicate.add_argument('-d', '--dst', dest='dst', required=True)
+    replicate.set_defaults(func=run_replicate)
+
+
+
+
+    configure = subparsers.add_parser(
+        'configure', description='Using the current config file,'
+        ' overwrite the current configuration')
+    run = subparsers.add_parser(
+        'run', description='Run the replication engine')
+
+    parser.add_argument(
+        '-l', '--logging', dest='logging', default=None,
+        help='Logging config file')
+    parser.add_argument(
+        '-c', '--config', dest='config', default='test.yml',
+        help='Topology config file',
+        required=True)
+    parser.add_argument(
+        '-s', '--slave', dest='slave', default=None,
+        help='Restrict operations to a particular named slave')
+    configure.set_defaults(func=run_configure)
+    run.set_defaults(func=run_main)
+
+    args = parser.parse_args()
+    if args.logging:
+        logging.config.fileConfig(args.logging)
+    else:
+        logging.basicConfig(
+            format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+            datefmt='%y-%m-%d %H:%M:%S',
+            level=logging.INFO)
+    log = logging.getLogger('mmm')
+        
+    with open(args.config) as fp:
+        config = yaml.load(fp)
+    servers = {}
+    for name, sconfig in config.items():
+        slave = ReplicationSlave(config, name=name)
+        slave.load_config()
+        servers[name] = slave
+    
+    args.func(config, servers, args)
+
+def run_dump_config(config, servers, args):
+    print '=== Server Config ==='
+    for id, server in servers.items():
+        print '%s (%s) => %s' % (
+            server.name, server.id, server.uri)
+    print
+    for name, server in servers.items():
+        config = server.dump_config()
+        print '=== %s Replication Config'  % server.name
+        for mname, mconfig in config.items():
+            for repl in mconfig['replication']:
+                print '     - %s <= %s/%s' % (repl['dst'], mname, repl['src'])
+
+def run_clear_config(config, servers, args):
+    if args.slave:
+        servers = [ servers[args.slave] ]
+    else:
+        servers = servers.values()
+
+    yn = raw_input('About to clear config on servers: %s, are you sure? (yN) ' %
+                   [ server.name for server in servers ])
+    if yn.lower()[0] != 'y':
+        print 'Aborted.'
+        return
+    for server in servers:
+        print 'Clear config for %s' % server.name
+        server.clear_config()
+
+def run_replicate(config, servers, args):
+    s_src, ns_src = args.src.split('/', 1)
+    s_dst, ns_dst = args.dst.split('/', 1)
+    servers[s_dst].set_replication(s_src, ns_src=ns_src, ns_dst=ns_dst)
+
+def run_main(config, args):
+    print config
+    
+def run_configure(config, args):
+    print config
+
+    
+if __name__ == '__main__':
+    main()
