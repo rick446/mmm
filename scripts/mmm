@@ -53,7 +53,7 @@ def main():
     else:
         logging.basicConfig(
             format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
-            datefmt='%y-%m-%d %H:%M:%S',
+            datefmt='%Y-%m-%d %H:%M:%S',
             level=logging.INFO)
     log = logging.getLogger('mmm')
         
