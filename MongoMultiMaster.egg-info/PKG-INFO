@@ -2,7 +2,7 @@ Metadata-Version: 1.1
 Name: MongoMultiMaster
 Version: 0.0dev
 Summary: Multimaster replication for MongoDB
-Home-page: UNKNOWN
+Home-page: https://github.com/rick446/mmm
 Author: Rick Copeland
 Author-email: rick@arborian.com
 License: Apache License, Version 2.0
