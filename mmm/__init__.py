@@ -1,1 +1,1 @@
-#
+from slave import ReplicationSlave

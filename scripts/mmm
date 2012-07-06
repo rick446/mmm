@@ -38,6 +38,7 @@ def main():
         'replicate', description='Create a replication link')
     replicate.add_argument('-s', '--src', dest='src', required=True)
     replicate.add_argument('-d', '--dst', dest='dst', required=True)
+    replicate.add_argument('-o', '--ops', dest='ops', default='iud')
     replicate.set_defaults(func=run_replicate)
 
     run = subparsers.add_parser(
@@ -80,7 +81,8 @@ def run_dump_config(config, servers, args):
         print '=== %s Replication Config'  % server.name
         for mname, mconfig in config.items():
             for repl in mconfig['replication']:
-                print '     - %s <= %s/%s' % (repl['dst'], mname, repl['src'])
+                print '     - %s <= %s/%s (%s)' % (
+                    repl['dst'], mname, repl['src'], repl['ops'])
     print
 
 def run_clear_config(config, servers, args):
@@ -101,7 +103,8 @@ def run_clear_config(config, servers, args):
 def run_replicate(config, servers, args):
     s_src, ns_src = args.src.split('/', 1)
     s_dst, ns_dst = args.dst.split('/', 1)
-    servers[s_dst].set_replication(s_src, ns_src=ns_src, ns_dst=ns_dst)
+    servers[s_dst].set_replication(
+        s_src, ns_src=ns_src, ns_dst=ns_dst, ops=args.ops)
 
 def run_main(config, servers, args):
     log = logging.getLogger('mmm')

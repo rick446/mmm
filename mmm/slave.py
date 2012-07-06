@@ -1,3 +1,4 @@
+import re
 import copy
 import time
 import uuid
@@ -21,9 +22,10 @@ class ReplicationSlave(object):
     
     {  _id: some_uuid,
       checkpoint: ...,  // timestamp offset in the oplog
-      replication: [
-         { dst: 'slave-database.collection',
-           src: 'master-database.collection' },
+      replication: [ {
+          dst: 'slave-db.collection',
+          src: 'master-db.collection',
+          ops:'iud' },
          ... ]
     }
     '''
@@ -72,12 +74,14 @@ class ReplicationSlave(object):
             result[name] = d
         return result
 
-    def set_replication(self, master_name, ns_dst, ns_src):
+    def set_replication(self, master_name, ns_dst, ns_src, ops='iud'):
         master_id = self._topology[master_name]['id']
-        replication = dict(dst=ns_dst, src=ns_src)
-        master = self._coll.update(
+        self._coll.update(
             dict(_id=master_id),
-            { '$addToSet': { 'replication': replication } },
+            { '$pull': { 'replication': dict(dst=ns_dst, src=ns_src) } })
+        master = self._coll.find_and_modify(
+            dict(_id=master_id),
+            { '$push': {'replication': dict(dst=ns_dst, src=ns_src, ops=ops) }},
             upsert=True,
             new=True)
         self._config[master_name] = master
@@ -87,7 +91,7 @@ class ReplicationSlave(object):
         to_pull = dict()
         if ns_dst is not None: to_pull['dst'] = ns_dst
         if ns_src is not None: to_pull['src'] = ns_src
-        if to_pull:
+        if ns_dst or ns_src:
             # Stop replication on one namespace
             master = self._coll.find_and_modify(
                 dict(_id=master_id),
@@ -122,10 +126,10 @@ class ReplicationSlave(object):
             # By default, start replicating as of NOW
             checkpoint = bson.Timestamp(long(time.time()), 0)
         triggers = Triggers(conn, checkpoint)
-        for r in master_repl_config['replication']:
+        for repl in master_repl_config['replication']:
             triggers.register(
-                r['src'], 'iud',
-                self._replicate_to_trigger(master_id, r['dst']))
+                repl['src'], repl['ops'], 
+                self._replicate_to_trigger(master_id, repl['dst']))
         for checkpoint in triggers.run():
             master_repl_config['checkpoint'] = checkpoint
 
