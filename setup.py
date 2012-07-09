@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 import os
 
-version = '0.0.1'
+version = '0.0.3'
 with open(os.path.join(os.path.dirname(__file__), 'README.rst')) as fp:
     long_description = fp.read()
 
