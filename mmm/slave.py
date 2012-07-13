@@ -3,7 +3,6 @@ import time
 import uuid
 import logging
 
-import bson
 import gevent
 
 from .triggers import Triggers
@@ -28,8 +27,9 @@ class ReplicationSlave(object):
     }
     '''
 
-    def __init__(self, topology, name, connect=None):
+    def __init__(self, topology, name, connect=None, timestamp=None):
         if connect: self.connect = connect
+        if timestamp: self.timestamp = timestamp
         self._topology = topology
         self.name = name
         topo = topology[name]
@@ -50,6 +50,14 @@ class ReplicationSlave(object):
         from pymongo import Connection
         return Connection(*args, **kwargs)
 
+    def timestamp(self, *args, **kwargs):
+        '''Create a bson.Timestamp. Factored into a method so we can delay
+        importing socket until gevent.monkey.patch_all() is called. You could
+        also insert another timestamp function to set options if you so desire.
+        '''
+        import bson
+        return bson.Timestamp(*args, **kwargs)
+        
     def start(self, checkpoint=None):
         for gl in self._greenlets:
             gl.kill()
@@ -131,7 +139,7 @@ class ReplicationSlave(object):
             checkpoint = master_repl_config.get('checkpoint')
         if checkpoint is None:
             # By default, start replicating as of NOW
-            checkpoint = bson.Timestamp(long(time.time()), 0)
+            checkpoint = self.timestamp(long(time.time()), 0)
         triggers = Triggers(conn, checkpoint)
         for repl in master_repl_config['replication']:
             triggers.register(
