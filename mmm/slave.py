@@ -1,4 +1,3 @@
-import re
 import copy
 import time
 import uuid
@@ -6,7 +5,6 @@ import logging
 
 import bson
 import gevent
-from pymongo import Connection
 
 from .triggers import Triggers
 
@@ -30,7 +28,8 @@ class ReplicationSlave(object):
     }
     '''
 
-    def __init__(self, topology, name):
+    def __init__(self, topology, name, connect=None):
+        if connect: self.connect = connect
         self._topology = topology
         self.name = name
         topo = topology[name]
@@ -38,10 +37,18 @@ class ReplicationSlave(object):
         if isinstance(self.id, basestring):
             self.id = uuid.UUID(self.id)
         self.uri = topo['uri']
-        self._conn = Connection(self.uri, use_greenlets=True)
+        self._conn = self.connect(self.uri)
         self._coll = self._conn.local[MMM_DB_NAME]
         self._config = {}
         self._greenlets = []
+
+    def connect(self, *args, **kwargs):
+        '''Connect to a mongod server. Factored into a method so we can delay
+        importing Connection until gevent.monkey.patch_all() is called. You could
+        also insert another connect function to set options if you so desire.
+        '''
+        from pymongo import Connection
+        return Connection(*args, **kwargs)
 
     def start(self, checkpoint=None):
         for gl in self._greenlets:
@@ -119,7 +126,7 @@ class ReplicationSlave(object):
         master_repl_config = self._config[master_name]
         master_info = self._topology[master_name]
         master_id = master_repl_config['_id']
-        conn = Connection(master_info['uri'], use_greenlets=True)
+        conn = self.connect(master_info['uri'])
         if checkpoint is None:
             checkpoint = master_repl_config.get('checkpoint')
         if checkpoint is None:
